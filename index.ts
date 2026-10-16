@@ -1,15 +1,96 @@
 import express from "express";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import type  {Request, Response} from "express";
+
 const app=express();
 app.use(express.json());
 
+interface User{
+   id: number;
+   username: string;
+   email: string;
+   password: string
+}
 interface Todo{
     id : number;
     title : string;
     status : boolean;
 }
+
 const todos : Todo[]=[];
+const users:User[]=[];
+const jwt_secret_key="Suhani09";
 let nextid =1;
+let nextuserid=1;
+
+app.post("/signup",async(req:Request,res:Response)=>{
+   const{username,email,password}=req.body;
+   if(!username || !email || !password){
+      return res.status(400).json({error:"Missing values"});
+   }
+   const existingUser=users.find((u)=>u.email===email);
+   if(existingUser){
+      return res.status(409).json({error:"Email already registered"});
+   }
+   let hashPass;
+   try{
+      hashPass=await bcrypt.hash(password,10);
+   }catch(error){
+      return res.status(500).json({error:"Internal Server Error"});
+   }
+   const user:User={
+         id:nextuserid++,
+         username: username,
+         email:email,
+         password: hashPass
+      }
+   users.push(user);
+   res.status(201).json({
+      message:"Successfully signed up",
+      user:{
+         id:user.id,
+         username:user.username,
+         email:user.email
+      }
+   });
+});
+
+app.post("/signin",async(req,res)=>{
+   const{email,password}=req.body;
+   if(!email || !password){
+      return res.status(400).json({error:"Missing value"});
+   }
+   const user=users.find((u)=>u.email===email);
+   if(!user){
+      return res.status(404).json({error:"Invalid email or password"});
+   }
+   let token;
+
+   try{
+      const isPassCorrect=bcrypt.compare(password,user.password);
+      if(!isPassCorrect){
+         return res.status(401).json({error:"Invalid email or password"});
+      }
+      token=jwt.sign(
+         {user_id:user.id,email: user.email},
+         jwt_secret_key
+      )
+   }catch(error){
+      return res.status(500).json({error:"Internal Server Error"});
+   };
+   return res.status(200).json({
+      message:"User logged in",
+      token,
+      user:{
+         id:user.id,
+         username: user.username,
+         email:user.email
+      }
+   });
+});
+
+
 
 app.get("/todos",(_req: Request,res: Response)=>{
    res.json(todos);
