@@ -16,6 +16,7 @@ interface Todo{
     id : number;
     title : string;
     status : boolean;
+    user_id:number
 }
 
 const todos : Todo[]=[];
@@ -68,7 +69,7 @@ app.post("/signin",async(req,res)=>{
    let token;
 
    try{
-      const isPassCorrect=bcrypt.compare(password,user.password);
+      const isPassCorrect=await bcrypt.compare(password,user.password);
       if(!isPassCorrect){
          return res.status(401).json({error:"Invalid email or password"});
       }
@@ -95,43 +96,108 @@ app.post("/signin",async(req,res)=>{
 app.get("/todos",(_req: Request,res: Response)=>{
    res.json(todos);
 });
-app.get("/todo/:id",(req,res)=>{
-  const id = Number(req.params.id);
-  const todo= todos.find((t)=>t.id === id);
-  if(!todo){
-    return res.status(404).json({error:"Todo not found"});
-  }
-  res.status(200).json(todo);
+app.get("/get_user_todos/",async(req,res)=>{
+  const authHeader=req.headers.authorization;
+  if(!authHeader)return res.status(401).json({error:"Authorization header needed"});
+  const token=authHeader.split(" ")[1];
+  if(!token)return res.status(401).json({error:"Invalid token"});
+  let userpayload;
+  try{
+    userpayload=jwt.verify(token,jwt_secret_key);
+    if(typeof userpayload==="string")return res.status(401).json({error:"Invalid token payload"});
+  }catch(error){
+    return res.status(401).json({error:"Invalid token "});
+  };
+  const userTodos=todos.filter((t)=>t.user_id===userpayload.user_id);
+  res.status(200).json({userTodos});
 });
+
 app.post("/addTodo", (req,res)=>{
    const {title}=req.body;
    if(!title){
     return res.status(400).json({error:"missing value"});
    }
+   const authHeader=req.headers.authorization;
+   if(!authHeader){
+      return res.status(401).json({error:"Authorization token required"});
+   }
+   const token =authHeader.split(" ")[1];
+   if(!token){
+      return res.status(401).json({error:"Invalid Authorization token"});
+   }
+   let userPayload;
+   try{
+     userPayload=jwt.verify(token,jwt_secret_key) ;
+     if(typeof userPayload=== "string"){
+      return res.status(401).json({error:"Invalid token"});
+     }
+   }catch(error){
+      return res.status(401).json({error:"Invalid token"});
+   };
+
    const todo: Todo={
     id: nextid++,
     title: title,
-    status: false
+    status: false,
+    user_id: userPayload.user_id
    };
    todos.push(todo);
    res.status(201).json({message:"Todo added", todo});
 });
-app.patch("/changestatus/:id",(req,res)=>{
+
+app.patch("/changestatus/:id",async (req,res)=>{
    const id= Number(req.params.id);
+   const {status}=req.body;
+
    const todo=todos.find((t)=>t.id===id);
    if(!todo){
     return res.status(404).json({error:"Todo not found"});
    }
-   const {status}=req.body;
+   const authHeader=req.headers.authorization;
+   if(!authHeader){
+      return res.status(401).json({error:"Authorization header required"});
+   }
+   const token=authHeader.split(" ")[1];
+   if(!token){
+      return res.status(401).json({error:"Invalid Authorization token"});
+   }
+   let payload;
+   try{
+     payload=jwt.verify(token,jwt_secret_key);
+     if (typeof payload === "string") {
+        return res.status(401).json({error: "Invalid token"});
+      }
+   }catch(error){
+     return res.status(401).json({error:"Invalid token"});
+   };
+
+   if(todo.user_id!== payload.user_id)   {
+      return res.status(403).json({error:"You are not authorized to update this todo"});
+   }
    todo.status=status;
    res.status(200).json({message:"Status updated",todo});
 });
 app.delete("/delete/:id",(req,res)=>{
    const id=Number(req.params.id);
+   const authHeader=req.headers.authorization;
+   if(!authHeader)return res.status(401).json({error:"Authorization header required"});
+   const token=authHeader.split(" ")[1];
+   if(!token)return res.status(401).json({error:"Invalid Authorization Token"});
+   let userPayload;
+   try{   
+     userPayload= jwt.verify(token,jwt_secret_key);
+     if (typeof userPayload ==="string")return res.status(401).json({error:"Invalid token"});
+   }catch(error){
+     return res.status(401).json({error:"Invalid token"});
+   };
    const idx=todos.findIndex((t)=>t.id===id);
-   if(idx===-1 ){
+   const todo=todos[idx];
+
+   if(idx===-1 || todo===undefined ){
     return res.status(404).json({error:"Todo not found"});
    }
+   if(todo.user_id!==userPayload.user_id)return res.status(403).json({error:"You are not authorized"});
+
    const delTodo= todos.splice(idx,1);
    res.status(200).json({message:"Todo deleted successfully",delTodo});
 });
